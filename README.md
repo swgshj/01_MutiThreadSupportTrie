@@ -2,5 +2,3 @@
 ========================
 
 01_MutiThreadSupportTrie
-
-/////

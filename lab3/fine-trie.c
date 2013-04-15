@@ -4,10 +4,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include "trie.h"
 
+
 struct trie_node {
-    pthread_mutx_t lock;
+    pthread_mutex_t lock;
     pthread_t thread;
     int islocked;
 	struct trie_node *next;  /* parent list */
@@ -21,18 +23,18 @@ static struct trie_node * root = NULL;
 
 void _nodelock(struct trie_node *node)
 {
-    assert(!node);
+    assert(node);
     if (node->islocked && pthread_self() == node->thread)
         return;
     
-    pthread_mutex_lock(&node->lock);
+    pthread_mutex_lock(&(node->lock));
     node->thread = pthread_self();
     node->islocked = 1;
 }
 
 void _nodeunlock(struct trie_node *node)
 {
-    assert(!node);
+    assert(node);
     assert(node->islocked != 0);
     pthread_mutex_unlock(&node->lock);
 }
@@ -55,7 +57,7 @@ struct trie_node * new_leaf (const char *string, size_t strlen, int32_t ip4_addr
 	new_node->children = NULL;
     new_node->islocked = 0;
     new_node->thread = 0;
-    pthread_mutex_init(&node->lock, NULL);
+    pthread_mutex_init(&new_node->lock, NULL);
 
 	return new_node;
 }

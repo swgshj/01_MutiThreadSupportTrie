@@ -62,6 +62,13 @@ struct trie_node * new_leaf (const char *string, size_t strlen, int32_t ip4_addr
 	return new_node;
 }
 
+struct trie_node delete_leaf(struct trie_node *node)
+{
+    assert(node);
+    pthread_mutex_destroy(&node->lock);
+    free(node);
+}
+
 int compare_keys (const char *string1, int len1, const char *string2, int len2, int *pKeylen) {
 	int keylen, offset1, offset2;
 	keylen = len1 < len2 ? len1 : len2;
@@ -354,8 +361,7 @@ int insert (const char *string, size_t strlen, int32_t ip4_address) {
  * 
  */
 struct trie_node * 
-_delete (struct trie_node *node, const char *string, 
-			size_t strlen) {
+_delete (struct trie_node *node, struct trie_node *pred, const char *string, size_t strlen) {
 	int keylen, cmp;
 
 	// First things first, check if we are NULL 
@@ -363,15 +369,36 @@ _delete (struct trie_node *node, const char *string,
 
 	assert(node->strlen < 64);
 
+    // the looking for node could be node or node->next or node->child or none of them
+    _nodelock(node);
+    if (node->next){
+        _nodelock(node->next);
+    }
+    if (node->children)
+    {
+        _nodelock(node->children);
+    }
+
 	// See if this key is a substring of the string passed in
 	cmp = compare_keys (node->key, node->strlen, string, strlen, &keylen);
 	if (cmp == 0) {
 		// Yes, either quit, or recur on the children
 
+        // The looking for node can not be in sub-tree node->next
+        if (node->next) {
+            _nodeunlock(node->next);
+        }
+
 		// If this key is longer than our search string, the key isn't here
 		if (node->strlen > keylen) {
+            if (node->children) {
+                _nodeunlock(node->children);
+            }
+            _nodeunlock(node);
 			return NULL;
-		} else if (strlen > keylen) {
+		} 
+        else if (strlen > keylen) {
+            _nodeunlock(node);  //unlock too early when condition at line 416 is true????
 			struct trie_node *found =  _delete(node->children, string, strlen - keylen);
 			if (found) {
 				/* If the node doesn't have children, delete it.
@@ -379,10 +406,13 @@ _delete (struct trie_node *node, const char *string,
 				if (found->children == NULL && found->ip4_address == 0) {
 					assert(node->children == found);
 					node->children = found->next;
+                    _nodeunlock(found);
+                    _nodeunlock(node->children);
 					free(found);
 				}
 
 				/* Delete the root node if we empty the tree */
+                // How to lock and unlock here???
 				if (node == root && node->children == NULL && node->ip4_address == 0) {
 					root = node->next;
 					free(node);
@@ -391,9 +421,9 @@ _delete (struct trie_node *node, const char *string,
 				return node; /* Recursively delete needless interior nodes */
 			} else 
 			  return NULL;
-		} else {
+		}
+        else {
 			assert (strlen == keylen);
-
 			/* We found it! Clear the ip4 address and return. */
 			if (node->ip4_address) {
 				node->ip4_address = 0;
@@ -401,22 +431,44 @@ _delete (struct trie_node *node, const char *string,
 				/* Delete the root node if we empty the tree */
 				if (node == root && node->children == NULL && node->ip4_address == 0) {
 					root = node->next;
-					free(node);
+                    
+                    _nodeunlock(node);
+					//free(node);
+					delete_leaf(node);
 					return (struct trie_node *) 0x100100; /* XXX: Don't use this pointer for anything except 
 														   * comparison with NULL, since the memory is freed.
 														   * Return a "poison" pointer that will probably 
 														   * segfault if used.
 														   */
 				}
+
+                // If node != root && node->children == NULL, it must be in the recursion;
+                // node will be deleted by the upper caller, so node unlock should be operated by upper caller
+                // Else unlock the nodes
+                if (node->children) {
+                    _nodeunlock(node->children);
+                    _nodeunlock(node);
+                }
 				return node;
-			} else {
+			} 
+            else {
 				/* Just an interior node with no value */
+                if (node->children) {
+                    // never come here
+                    _nodeunlock(node->children);
+                }
+                _nodeunlock(node);
 				return NULL;
 			}
 		}
 
-	} else if (cmp < 0) {
+	} 
+    else if (cmp < 0) {
 		// No, look right (the node's key is "less" than  the search key)
+		// The looking for node can not be in sub-tree node->children
+        if (node->children) {
+            _nodeunlock(node->children);
+        }
 		struct trie_node *found = _delete(node->next, string, strlen);
 		if (found) {
 			/* If the node doesn't have children, delete it.
@@ -424,6 +476,8 @@ _delete (struct trie_node *node, const char *string,
 			if (found->children == NULL && found->ip4_address == 0) {
 				assert(node->next == found);
 				node->next = found->next;
+                _nodeunlock(found);
+                _nodeunlock(node);
 				free(found);
 			}       
 

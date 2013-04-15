@@ -5,8 +5,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <unistd.h>
 #include "trie.h"
 
+extern volatile int finished;
 
 struct trie_node {
     pthread_mutex_t lock;
@@ -23,6 +25,7 @@ static struct trie_node * root = NULL;
 
 void _nodelock(struct trie_node *node)
 {
+	fflush(stdout);
     assert(node);
     if (node->islocked && pthread_self() == node->thread)
         return;
@@ -34,12 +37,21 @@ void _nodelock(struct trie_node *node)
 
 void _nodeunlock(struct trie_node *node)
 {
+	fflush(stdout);
+    if (node == NULL)
+    {
+        printf("*** thread[%u]\n", (unsigned int)pthread_self());
+        finished = 1;
+        fflush(stdout);
+        sleep(2);
+    }
+
     assert(node);
-	//if ((!node->islocked) && pthread_self() == node->thread)
-	//  return;
+    //if ((!node->islocked) && pthread_self() == node->thread)
+    //  return;
 
     //assert(node->islocked != 0);
-	node->islocked = 0;
+    node->islocked = 0;
     pthread_mutex_unlock(&node->lock);
 }
 
@@ -164,14 +176,23 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
 
     // both parent and left are non-null is impossible
     if (parent) {
+        printf("*** thread[%u], lock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
         _nodelock(parent);
     }
     if (left) {
+        printf("*** thread[%u], lock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
         _nodelock(left);
     }
     // use hand-in-hand lock
+    if (node)
+    {
+        printf("*** thread[%u], lock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+    }else
+    {
+        printf("*** thread[%u], lock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
+    }
     _nodelock(node);
-    
+
     // Take the minimum of the two lengths
     cmp = compare_keys (node->key, node->strlen, string, strlen, &keylen);
     if (cmp == 0) {
@@ -193,14 +214,22 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
 
             if (parent) {
                 parent->children = new_node;
+                printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
                 _nodeunlock(parent);
             } else if (left) {
                 left->next = new_node;
+                printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
                 _nodeunlock(left);
             } else if ((!parent) || (!left)) {
                 root = new_node;
             }
 
+            if (node){
+                printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+            }
+            else {
+                printf("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
+            }
             _nodeunlock(node);
             return 1;
 
@@ -211,19 +240,34 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 struct trie_node *new_node = new_leaf (string, strlen - keylen, ip4_address);
                 node->children = new_node;
 
+                //printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+                if (node){
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+                }
+                else {
+                    printf("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
+                }
                 _nodeunlock(node);
                 if (parent) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
                     _nodeunlock(parent);
                 }
                 if (left) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
                     _nodeunlock(left);
                 }
                 return 1;
             } 
             else {
                 // Recur on children list, store "parent" (loosely defined)
-                if (parent)
-                    _nodeunlock(parent);
+                if (parent){
+                  printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
+                  _nodeunlock(parent);
+                }
+                if (left) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
+                    _nodeunlock(left);
+                }
                 return _insert(string, strlen - keylen, ip4_address, node->children, node, NULL);
             }
         } 
@@ -231,12 +275,21 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
             assert (strlen == keylen);
             if (node->ip4_address == 0) {
                 node->ip4_address = ip4_address;
-                
+
                 if (parent) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
                     _nodeunlock(parent);
                 }
                 if (left) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
                     _nodeunlock(left);
+                }
+                //printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+                if (node){
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+                }
+                else {
+                    printf("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
                 }
                 _nodeunlock(node);
                 return 1;
@@ -244,10 +297,19 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
             {
                 //IF IT FAILS ON READDING IT
                 if (parent) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
                     _nodeunlock(parent);
                 }
                 if (left) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
                     _nodeunlock(left);
+                }
+                //printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+                if (node){
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+                }
+                else {
+                    printf("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
                 }
                 _nodeunlock(node);
                 printf("I AM HERE WITH SOURABH"); fflush(stdout);
@@ -257,7 +319,7 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
 
     } 
     else {
-    
+
         /* Is there any common substring? */
         int i, cmp2, keylen2, overlap = 0;
         for (i = 1; i < keylen; i++) {
@@ -278,7 +340,12 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
             node->strlen -= diff;
             new_node->children = node;
             assert ((!parent) || (!left));
-
+            if (new_node) {
+                printf("*** thread[%u], lock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, new_node->strlen, new_node->key);
+            }
+            else {
+                printf("*** thread[%u], lock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
+            }
             _nodelock(new_node);
             if (node == root) {
                 new_node->next = node->next;
@@ -288,11 +355,13 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 assert(parent->children == node);
                 new_node->next = NULL;
                 parent->children = new_node;
+                printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
                 _nodeunlock(parent);
             } else if (left) {
                 new_node->next = node->next;
                 node->next = NULL;
                 left->next = new_node;
+                printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
                 _nodeunlock(left);
             } else if ((!parent) && (!left)) {
                 root = new_node;
@@ -306,19 +375,30 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 struct trie_node *new_node = new_leaf (string, strlen, ip4_address);
                 node->next = new_node;
                 if (parent) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
                     _nodeunlock(parent);
                 }
                 if (left) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
                     _nodeunlock(left);
+                }
+                //printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+                if (node){
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+                }
+                else {
+                    printf("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
                 }
                 _nodeunlock(node);
                 return 1;
             } else {
                 // No, recur right (the node's key is "greater" than  the search key)
                 if (parent) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
                     _nodeunlock(parent);
                 }
                 if (left) {
+                    printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
                     _nodeunlock(left);
                 }
                 return _insert(string, strlen, ip4_address, node->next, NULL, node);
@@ -332,16 +412,25 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
               root = new_node;
             else if (parent && parent->children == node)
               parent->children = new_node;
-            
+
         }
-        
+
         if (parent) {
+            printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key);
             _nodeunlock(parent);
-            }
-            if (left) {
-                _nodeunlock(left);
-            }
-            _nodeunlock(node);
+        }
+        if (left) {
+            printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key);
+            _nodeunlock(left);
+        }
+        //printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+        if (node){
+            printf("*** thread[%u], unlock: %d, %.*s ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key);
+        }
+        else {
+            printf("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
+        }
+        _nodeunlock(node);
         return 1;
     }
 }
@@ -411,14 +500,14 @@ _delete (struct trie_node *node, struct trie_node *pred, const char *string, siz
                     _nodeunlock(node);
                     delete_leaf(node);
                 }
-				else {
-					_nodeunlock(node);
-				}
+                else {
+                    _nodeunlock(node);
+                }
 
                 return node; /* Recursively delete needless interior nodes */
             } 
             else {
-              return NULL;
+                return NULL;
             }
         }
         else {
@@ -430,7 +519,7 @@ _delete (struct trie_node *node, struct trie_node *pred, const char *string, siz
                 /* Delete the root node if we empty the tree */
                 if (node == root && node->children == NULL && node->ip4_address == 0) {
                     root = node->next;
-                    
+
                     _nodeunlock(node);
                     //free(node);
                     delete_leaf(node);
@@ -515,3 +604,4 @@ void print() {
     if (root)
       _print(root);
 }
+

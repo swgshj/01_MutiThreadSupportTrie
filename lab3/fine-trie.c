@@ -29,14 +29,15 @@ struct trie_node {
 static struct trie_node * root = NULL;
 pthread_mutex_t rootlock = PTHREAD_MUTEX_INITIALIZER;
 
-void _nodelock(struct trie_node *node)
+void _nodelock(struct trie_node *node, int line, const char *func)
 {
-    //struct timespec tm;
-    //clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tm);
-    //LOG_PRINT("*** 1:tm (%ul.%ul) _nodelock thread[%u], islocked=%d, node[%p]\n", tm.tv_sec, tm.tv_nsec, (unsigned int)pthread_self(), node->islocked, node);
+    struct timespec tm;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tm);
+    LOG_PRINT2("*** 1:tm (%ul.%ul) _nodelock thread[%u], islocked=%d, node[%p], %s, %d\n", 
+        tm.tv_sec, tm.tv_nsec, (unsigned int)pthread_self(), node->islocked, node, func, line);
     assert(node);
     if(node->islocked) {
-        assert(node->thread != pthread_self());
+     //   assert(node->thread != pthread_self());
     }
     
     //if (node->islocked && pthread_self() == node->thread){
@@ -47,12 +48,16 @@ void _nodelock(struct trie_node *node)
     //LOG_PRINT("*** 0 _nodelock thread[%u], islocked=%d, node[%p]\n", (unsigned int)pthread_self(), node->islocked, node);
     pthread_mutex_lock(&(node->lock));
     //LOG_PRINT("*** 3:tm (%ul.%ul) _nodelock thread[%u], islocked=%d, node[%p]\n", tm.tv_sec, tm.tv_nsec, (unsigned int)pthread_self(), node->islocked, node);
-    node->thread = pthread_self();
-    node->islocked = 1;
+    //node->thread = pthread_self();
+    //node->islocked = 1;
 }
 
-void _nodeunlock(struct trie_node *node)
+void _nodeunlock(struct trie_node *node, int line, const char *func)
 {
+    struct timespec tm;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tm);
+    LOG_PRINT2("*** 1:tm (%ul.%ul) _nodeunlock thread[%u], islocked=%d, node[%p], %s, %d\n", 
+        tm.tv_sec, tm.tv_nsec, (unsigned int)pthread_self(), node->islocked, node, func, line);
     //pthread_mutex_lock(&g_lock);
     if (node == NULL)
     {
@@ -66,13 +71,13 @@ void _nodeunlock(struct trie_node *node)
         //pthread_mutex_unlock(&g_lock);
         //return;
     //}
-    assert (node->islocked);
-    assert (pthread_self() == node->thread);
+    //assert (node->islocked);
+    //assert (pthread_self() == node->thread);
 
     //LOG_PRINT("*** 1 _nodeunlock thread[%u], islocked=%d, node[%p]\n", (unsigned int)pthread_self(), node->islocked, node);
     //assert(node->islocked != 0);
-    node->islocked = 0;
-    node->thread = 0;
+    //node->islocked = 0;
+    //node->thread = 0;
     //pthread_mutex_unlock(&g_lock);
     pthread_mutex_unlock(&node->lock);
     
@@ -193,32 +198,15 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
             struct trie_node *node, struct trie_node *parent, struct trie_node *left) {
 
     int cmp, keylen;
-
+    struct timespec tm;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tm);
+    LOG_PRINT2("*** 1:tm (%ul.%ul) _insert thread[%u], node=%p, parent=%p, left=%p, string=%.*s, strlen[%d], ip4_address=%d\n", 
+        tm.tv_sec, tm.tv_nsec, (unsigned int)pthread_self(), node, parent, left, strlen, string, strlen, ip4_address);
     // First things first, check if we are NULL 
     assert (node != NULL);
     assert (node->strlen < 64);
 
-    #if 0
-    // both parent and left are non-null is impossible
-    if (parent) {
-        LOG_PRINT("*** thread[%u], lock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-        _nodelock(parent);
-    }
-    if (left) {
-        LOG_PRINT("*** thread[%u], lock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-        _nodelock(left);
-    }
-    // use hand-in-hand lock
-    if (node)
-    {
-        LOG_PRINT("*** thread[%u], lock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key, node);
-    }else
-    {
-        LOG_PRINT("*** thread[%u], lock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
-    }
-    #endif
-    _nodelock(node);
-
+    _nodelock(node, __LINE__, __func__);
     // Take the minimum of the two lengths
     cmp = compare_keys (node->key, node->strlen, string, strlen, &keylen);
     if (cmp == 0) {
@@ -241,11 +229,11 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
             if (parent) {
                 parent->children = new_node;
                 LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-                _nodeunlock(parent);
+                _nodeunlock(parent, __LINE__, __func__);
             } else if (left) {
                 left->next = new_node;
                 LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-                _nodeunlock(left);
+                _nodeunlock(left, __LINE__, __func__);
             } else if ((!parent) || (!left)) {
                 root = new_node;
                 pthread_mutex_unlock(&rootlock);
@@ -257,7 +245,7 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
             else {
                 LOG_PRINT("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
             }
-            _nodeunlock(node);
+            _nodeunlock(node, __LINE__, __func__);
             return 1;
 
         } 
@@ -276,28 +264,28 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 }               
                 if (parent) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-                    _nodeunlock(parent);
+                    _nodeunlock(parent, __LINE__, __func__);
                 }
                 else if (left) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-                    _nodeunlock(left);
+                    _nodeunlock(left, __LINE__, __func__);
                 }
                 else
                 {
                     pthread_mutex_unlock(&rootlock);
                 }
-                _nodeunlock(node);
+                _nodeunlock(node, __LINE__, __func__);
                 return 1;
             } 
             else {
                 // Recur on children list, store "parent" (loosely defined)
                 if (parent){
                   LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-                  _nodeunlock(parent);
+                  _nodeunlock(parent, __LINE__, __func__);
                 }
                 else if (left) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-                    _nodeunlock(left);
+                    _nodeunlock(left, __LINE__, __func__);
                 }
                 else {
                     pthread_mutex_unlock(&rootlock);
@@ -312,11 +300,11 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
 
                 if (parent) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-                    _nodeunlock(parent);
+                    _nodeunlock(parent, __LINE__, __func__);
                 }
                 else if (left) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-                    _nodeunlock(left);
+                    _nodeunlock(left, __LINE__, __func__);
                 }
                 else {
                     pthread_mutex_unlock(&rootlock);
@@ -328,7 +316,7 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 else {
                     LOG_PRINT("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
                 }
-                _nodeunlock(node);
+                _nodeunlock(node, __LINE__, __func__);
                 return 1;
             } 
             else 
@@ -336,11 +324,11 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 //IF IT FAILS ON READDING IT
                 if (parent) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-                    _nodeunlock(parent);
+                    _nodeunlock(parent, __LINE__, __func__);
                 }
                 else if (left) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-                    _nodeunlock(left);
+                    _nodeunlock(left, __LINE__, __func__);
                 }
                 else {
                     pthread_mutex_unlock(&rootlock);
@@ -352,8 +340,8 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 else {
                     LOG_PRINT("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
                 }
-                _nodeunlock(node);
-                printf("I AM HERE WITH SOURABH"); fflush(stdout);
+                _nodeunlock(node, __LINE__, __func__);
+                //printf("I AM HERE WITH SOURABH"); fflush(stdout);
                 return 0;
             }
         }
@@ -387,7 +375,7 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
             else {
                 LOG_PRINT("*** thread[%u], lock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
             }
-            _nodelock(new_node);
+            _nodelock(new_node, __LINE__, __func__);
             if (node == root) {
                 new_node->next = node->next;
                 node->next = NULL;
@@ -398,18 +386,18 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 new_node->next = NULL;
                 parent->children = new_node;
                 LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-                _nodeunlock(parent);
+                _nodeunlock(parent, __LINE__, __func__);
             } else if (left) {
                 new_node->next = node->next;
                 node->next = NULL;
                 left->next = new_node;
                 LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-                _nodeunlock(left);
+                _nodeunlock(left, __LINE__, __func__);
             } else if ((!parent) && (!left)) {
                 assert(0);
                 root = new_node;
             }
-            _nodeunlock(node);
+            _nodeunlock(node, __LINE__, __func__);
             return _insert(string, i, ip4_address, node, new_node, NULL);
         } 
         else if (cmp < 0) {
@@ -419,11 +407,11 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 node->next = new_node;
                 if (parent) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-                    _nodeunlock(parent);
+                    _nodeunlock(parent, __LINE__, __func__);
                 }
                 else if (left) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-                    _nodeunlock(left);
+                    _nodeunlock(left, __LINE__, __func__);
                 }
                 else {
                     pthread_mutex_unlock(&rootlock);
@@ -435,17 +423,17 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
                 else {
                     LOG_PRINT("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
                 }
-                _nodeunlock(node);
+                _nodeunlock(node, __LINE__, __func__);
                 return 1;
             } else {
                 // No, recur right (the node's key is "greater" than  the search key)
                 if (parent) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-                    _nodeunlock(parent);
+                    _nodeunlock(parent, __LINE__, __func__);
                 }
                 else if (left) {
                     LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-                    _nodeunlock(left);
+                    _nodeunlock(left, __LINE__, __func__);
                 }
                 else {
                     pthread_mutex_unlock(&rootlock);
@@ -468,11 +456,11 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
 
         if (parent) {
             LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, parent->strlen, parent->key, parent);
-            _nodeunlock(parent);
+            _nodeunlock(parent, __LINE__, __func__);
         }
         else if (left) {
             LOG_PRINT("*** thread[%u], unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, left->strlen, left->key, left);
-            _nodeunlock(left);
+            _nodeunlock(left, __LINE__, __func__);
         }
         else {
             pthread_mutex_unlock(&rootlock);
@@ -484,13 +472,17 @@ int _insert (const char *string, size_t strlen, int32_t ip4_address,
         else {
             LOG_PRINT("*** thread[%u], unlock: %d ***\n", (unsigned int)pthread_self(), __LINE__);
         }
-        _nodeunlock(node);
+        _nodeunlock(node, __LINE__, __func__);
         return 1;
     }
 }
 
 int insert (const char *string, size_t strlen, int32_t ip4_address) {
     // Skip strings of length 0
+    struct timespec tm;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tm);
+    LOG_PRINT2("*** 1:tm (%ul.%ul) insert thread[%u], string=%s, strlen[%d], ip4_address=%d\n", 
+        tm.tv_sec, tm.tv_nsec, (unsigned int)pthread_self(), string, strlen, ip4_address);
     if (strlen == 0)
       return 0;
 
@@ -512,7 +504,10 @@ int insert (const char *string, size_t strlen, int32_t ip4_address) {
 struct trie_node * 
 _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockbegnd, const char *string, size_t strlen) {
     int keylen, cmp;
-
+    struct timespec tm;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tm);
+    LOG_PRINT2("*** 1:tm (%ul.%ul) _delete thread[%u], node=%p, pred=%p, lockbegnd=%p, string=%.*s, strlen[%d]\n", 
+        tm.tv_sec, tm.tv_nsec, (unsigned int)pthread_self(), node, pred, lockbegnd, strlen, string, strlen);
     // First things first, check if we are NULL 
     if (node == NULL) return NULL;
 
@@ -520,7 +515,7 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
 
     // the looking for node could be node or node->next or node->child or none of them
     LOG_PRINT("*** thread[%u], lock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key, node);
-    _nodelock(node);
+    _nodelock(node, __LINE__, __func__);
 
     // See if this key is a substring of the string passed in
     cmp = compare_keys (node->key, node->strlen, string, strlen, &keylen);
@@ -529,17 +524,13 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
 
         // If this key is longer than our search string, the key isn't here
         if (node->strlen > keylen) {
-            LOG_PRINT("*** thread[%u], Unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key, node);
-            _nodeunlock(node);
+            _nodeunlock(node, __LINE__, __func__);
             if (node == root) {
                 pthread_mutex_unlock(&rootlock);
             }
-            else if (pred && pred == lockbegnd) {
-                LOG_PRINT("*** thread[%u], lock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, pred->strlen, pred->key, pred);
-                _nodeunlock(pred);
-            }
-            else {
-                //pred will be unlocked by the up caller
+            else if (lockbegnd == NULL) {
+                assert(pred);
+                _nodeunlock(pred, __LINE__, __func__);
             }
             return NULL;
         } 
@@ -551,7 +542,7 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
                     pthread_mutex_unlock(&rootlock);
                 }
                 else if (pred && node->ip4_address) {
-                        _nodeunlock(pred);
+                        _nodeunlock(pred, __LINE__, __func__);
                 }
                 else if (pred && 0 == node->ip4_address){
                     lockbegnd = pred;
@@ -568,7 +559,7 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
             if (found) {
                 if (found == lockbegnd && found != root) {
                     assert(found->ip4_address);
-                    _nodeunlock(found);
+                    _nodeunlock(found, __LINE__, __func__);
                     return NULL;
                 }
                 else if (found == lockbegnd && found == root)
@@ -584,25 +575,26 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
                     assert(node->children == found);
                     node->children = found->next;
                     LOG_PRINT("*** thread[%u], Unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, found->strlen, found->key, found);
-                    _nodeunlock(found);
+                    _nodeunlock(found, __LINE__, __func__);
                     delete_leaf(found);
                 }
                 else {
-                    _nodeunlock(found);
+                    _nodeunlock(found, __LINE__, __func__);
                 }
 
-                /* Delete the root node if we empty the tree */
+                /* Delete the root node if we empty the tree */ 
+                //如果node之前的节点全部被删除了，则root指向了node，此时会造成对rootlock的重复解锁
                 if (node == root && node->children == NULL && node->ip4_address == 0) {
                     root = node->next;
                     LOG_PRINT("*** thread[%u], Unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key, node);
                     // after this, _delete calling finished, return to delete
-                    _nodeunlock(node);
+                    _nodeunlock(node, __LINE__, __func__);
                     delete_leaf(node);
                     pthread_mutex_unlock(&rootlock);
                 }else if (node == root){
                     // after this, _delete calling finished, return to delete
-                    _nodeunlock(node);
-                    if (lockbegnd == root) {
+                    _nodeunlock(node, __LINE__, __func__);
+                    if (lockbegnd == root && root->ip4_address == 0) {
                         pthread_mutex_unlock(&rootlock);
                     }
                 }
@@ -611,12 +603,16 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
             } 
             else {
                 if (lockbegnd) {
-                    _nodeunlock(node);
-                    if (node == root) {
+                    _nodeunlock(node, __LINE__, __func__);
+                    if (node == root && root->ip4_address == 0) {
+                        assert(root == lockbegnd);
                         pthread_mutex_unlock(&rootlock);
                     }
-                    else if (pred && pred == lockbegnd && pred != root) {
-                        _nodeunlock(pred);
+                    else if (pred && pred == lockbegnd) {
+                        //If pred != root, then when pred is lock, lockbend is still NULL
+                        if (pred != root || (pred == root && root->ip4_address)) {
+                            _nodeunlock(pred, __LINE__, __func__);
+                        }
                     }
                 }
                 return NULL;
@@ -633,7 +629,7 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
                 if (node == root && node->children == NULL && node->ip4_address == 0) {
                     root = node->next;
                     LOG_PRINT("*** thread[%u], Unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key, node);
-                    _nodeunlock(node);
+                    _nodeunlock(node, __LINE__, __func__);
                     delete_leaf(node);
                     pthread_mutex_unlock(&rootlock);
                     return (struct trie_node *) 0x100100; /* XXX: Don't use this pointer for anything except 
@@ -648,19 +644,16 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
             else {
                 /* Just an interior node with no value */
                 LOG_PRINT("*** thread[%u], Unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, node->strlen, node->key, node);
-                if (lockbegnd) {
-                    _nodeunlock(node);
-                    if (node == root) {
-                        pthread_mutex_unlock(&rootlock);
-                    }
-                    else if (pred && pred == lockbegnd && pred != root) {
-                        _nodeunlock(pred);
-                    }
+                _nodeunlock(node, __LINE__, __func__);
+                if (node == root) {
+                    pthread_mutex_unlock(&rootlock);
+                }else if (pred && lockbegnd == NULL){
+                    _nodeunlock(pred, __LINE__, __func__);
                 }
                 //pred will be unlock by the up caller
                 //if (pred) {
                 //    LOG_PRINT("*** thread[%u], Unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, pred->strlen, pred->key, pred);
-                //    _nodeunlock(pred);
+                //    _nodeunlock(pred, __LINE__, __func__);
                 //}
                 return NULL;
             }
@@ -675,7 +668,7 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
                 pthread_mutex_unlock(&rootlock);
             }
             else if (pred && node->ip4_address) {
-                    _nodeunlock(pred);
+                    _nodeunlock(pred, __LINE__, __func__);
             }
             else if (pred && 0 == node->ip4_address){
                 lockbegnd = pred;
@@ -691,7 +684,7 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
         if (found) {
             if (found == lockbegnd && found != root) {
                 assert(found->ip4_address);
-                _nodeunlock(found);
+                _nodeunlock(found, __LINE__, __func__);
                 return NULL;
             }
             else if (found == lockbegnd && found == root)
@@ -707,17 +700,17 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
                 assert(node->next == found);
                 node->next = found->next;
                 LOG_PRINT("*** thread[%u], Unlock: %d, %.*s, node[%p] ***\n", (unsigned int)pthread_self(), __LINE__, found->strlen, found->key, found);
-                _nodeunlock(found);
+                _nodeunlock(found, __LINE__, __func__);
                 delete_leaf(found);
             }
             else {
-                _nodeunlock(found);
+                _nodeunlock(found, __LINE__, __func__);
             }
 
             if (node == root) {
                 assert(root->children || root->ip4_address);
-                _nodeunlock(node);
-                if (lockbegnd == root) {
+                _nodeunlock(node, __LINE__, __func__);
+                if (lockbegnd == root && root->ip4_address == 0) {
                     pthread_mutex_unlock(&rootlock);
                 }
             }
@@ -726,22 +719,27 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
         }
         else {
             if (lockbegnd) {
-                _nodeunlock(node);
-                if (node == root) {
+                _nodeunlock(node, __LINE__, __func__);
+                if (node == root && root->ip4_address == 0) {
+                    assert(root == lockbegnd);
                     pthread_mutex_unlock(&rootlock);
                 }
-                else if (pred && pred == lockbegnd && pred != root) {
-                    _nodeunlock(pred);
+                else if (pred && pred == lockbegnd) {
+                    //If pred != root, then when pred is lock, lockbend is still NULL
+                    if (pred != root || (pred == root && root->ip4_address)) {
+                        _nodeunlock(pred, __LINE__, __func__);
+                    }
                 }
             }
             return NULL;
         }
     }
     else {
+        _nodeunlock(node, __LINE__, __func__);
         if (node == root) {
             pthread_mutex_unlock(&rootlock);
-        }else {
-            _nodeunlock(node);
+        }else if (pred && lockbegnd == NULL){
+            _nodeunlock(pred, __LINE__, __func__);
         }
         // Quit early
         return NULL;
@@ -750,6 +748,10 @@ _delete (struct trie_node *node, struct trie_node *pred, struct trie_node *lockb
 }
 
 int delete  (const char *string, size_t strlen) {
+    struct timespec tm;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tm);
+    LOG_PRINT2("*** 1:tm (%ul.%ul) delete thread[%u], string=%.*s, strlen[%d]\n", 
+        tm.tv_sec, tm.tv_nsec, (unsigned int)pthread_self(), strlen, string, strlen);
     // Skip strings of length 0
     if (strlen == 0)
       return 0;
@@ -760,8 +762,8 @@ int delete  (const char *string, size_t strlen) {
 
 
 void _print (struct trie_node *node) {
-    LogPrint("*** Thread[%u], Node at %p.  Key %.*s, IP %d.  Next %p, Children %p, islocked=%d\n", 
-                (unsigned int)pthread_self(), node, node->strlen, node->key, node->ip4_address, node->next, node->children, node->islocked);
+    printf ("Node at %p.  Key %.*s, IP %d.  Next %p, Children %p, islocked=%d\n", 
+                node, node->strlen, node->key, node->ip4_address, node->next, node->children, node->islocked);
     if (node->children)
       _print(node->children);
     if (node->next)
